@@ -70,7 +70,9 @@ export class AgentRunner {
       if (last?.role === "assistant" && last.status !== "complete") s.conversations.deleteMessage(last.id);
       const prev = s.conversations.lastMessage(conversation.id);
       if (prev?.role !== "user") throw new AppError("CONFLICT", "Nothing to retry.");
-      userMessage = prev!;
+      // Restored backup content is data, never live owner input.
+      if (prev.source === "import") throw new AppError("CONFLICT", "Messages restored from a backup can't be retried. Send a new message instead.");
+      userMessage = prev;
     } else {
       if (!conversation) {
         conversation = s.conversations.create(titleFromMessage(input.message));
@@ -98,12 +100,7 @@ export class AgentRunner {
       if (!this.provider) {
         throw new AppError("AI_UNAVAILABLE", "Workers AI is not configured for this deployment. Everything else keeps working.");
       }
-      if (!s.usage.canUseAi(limits)) {
-        throw new AppError(
-          "AI_LIMIT_REACHED",
-          `Talorys reached its daily limit of ${limits.maxAiRequestsPerDay} AI requests (adjustable in Settings → AI).`,
-        );
-      }
+      if (!s.usage.canUseAi(limits)) throw aiLimitReached(limits.maxAiRequestsPerDay);
 
       // 2. Context: relevant memories, summary, recent history within the token budget.
       const selected = this.ext ? await this.ext.selectMemories(userMessage.content) : selectRelevantMemories(s.memories, userMessage.content);
@@ -125,8 +122,10 @@ export class AgentRunner {
       const historyBudget = Math.max(500, limits.maxContextTokens - estimateTokens(baseSystem) - 600);
       let window = buildContextWindow(history, historyBudget, summaryUpto);
 
-      if (window.overflow.length >= SUMMARIZE_THRESHOLD) {
+      // Summarizing is an extra model call: only when the budget leaves room for the reply too.
+      if (window.overflow.length >= SUMMARIZE_THRESHOLD && s.usage.remainingAi(limits) >= 2) {
         try {
+          s.usage.increment({ ai_requests: 1 });
           const result = await this.provider.generate({
             system: "You write compact, factual conversation summaries.",
             messages: summarizationPrompt(summary, window.overflow),
@@ -137,7 +136,7 @@ export class AgentRunner {
           summary = result.text.trim().slice(0, 2000);
           summaryUpto = window.overflow.at(-1)!.created_at;
           s.conversations.setSummary(conversation.id, summary, summaryUpto);
-          s.usage.increment({ ai_requests: 1, input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens });
+          s.usage.increment({ input_tokens: result.usage.inputTokens, output_tokens: result.usage.outputTokens });
           window = buildContextWindow(history, historyBudget, summaryUpto);
         } catch (error) {
           console.warn("Summarization skipped", error);
@@ -168,7 +167,8 @@ export class AgentRunner {
         execute: (toolInput, callId) => executor.execute(t.name, toolInput, callId),
       }));
 
-      s.usage.increment({ ai_requests: 1 });
+      // Memory selection and summarizing may have spent budget since the first check.
+      if (!s.usage.reserveAi(limits)) throw aiLimitReached(limits.maxAiRequestsPerDay);
       let usageRecorded = false;
       for await (const event of this.provider.generateWithTools({
         system,
@@ -178,6 +178,7 @@ export class AgentRunner {
         maxOutputTokens: limits.maxOutputTokens,
         temperature: settings.temperature,
         toolBudgetExhausted: () => executor.budgetExhausted(),
+        reserveNextStep: () => s.usage.reserveAi(limits),
         signal: input.signal,
       })) {
         if (event.type === "text") {
@@ -269,6 +270,7 @@ export class AgentRunner {
         maxOutputTokens: Math.min(settings.limits.maxOutputTokens, 600),
         temperature: settings.temperature,
         toolBudgetExhausted: () => executor.budgetExhausted(),
+        reserveNextStep: () => s.usage.reserveAi(settings.limits),
         signal,
       })) {
         if (event.type === "text") text += event.delta;
@@ -281,4 +283,8 @@ export class AgentRunner {
     s.usage.increment({ tool_calls: executor.callCount });
     return text.trim() || "(No output)";
   }
+}
+
+function aiLimitReached(max: number): AppError {
+  return new AppError("AI_LIMIT_REACHED", `Talorys reached its daily limit of ${max} AI requests (adjustable in Settings → AI).`);
 }

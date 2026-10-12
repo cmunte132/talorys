@@ -155,7 +155,8 @@ paid features on its own. It is not "unlimited free", though:
 
 Built-in guardrails (adjustable in **Settings → AI**): max output tokens, max
 context tokens (older history is summarized), max tool calls and reasoning
-steps per request, max AI requests per day, and max scheduled AI runs per day.
+steps per request, max AI requests per day (every model call counts, including
+each reasoning step and history summary), and max scheduled AI runs per day.
 Simple reminders and task digests never use AI. The Usage panel shows local
 **estimates** and links to the Cloudflare dashboard for exact Neuron usage.
 
@@ -189,7 +190,11 @@ one transaction; importing the same backup twice is harmless, and a memory you
 edited locally after the backup was made is not overwritten. Memory history
 (current vs. past facts) is included. Older backups import as before. Settings include
 the effective installer defaults. If an imported timezone changes, retained
-local automations are also rescheduled in that timezone.
+local automations are also rescheduled in that timezone. A backup file is
+treated as untrusted: new automations arrive paused, existing automations are
+never changed except to pause them, and the model, limits, demo mode,
+auto-memory and memory history settings are kept as they are (the import
+result lists any it skipped).
 
 ## 10. Update
 

@@ -169,9 +169,8 @@ export class MemoryHistoryService {
   private async aiVerdict(older: string, newer: string, signal?: AbortSignal) {
     const provider = this.hooks.provider?.();
     const { limits } = this.settings.get();
-    if (!provider || !this.usage.canUseAi(limits)) return null;
+    if (!provider || !this.usage.reserveAi(limits)) return null;
     try {
-      this.usage.increment({ ai_requests: 1 });
       return await aiCheckConflict(provider, older, newer, signal);
     } catch {
       this.usage.increment({ ai_errors: 1 });

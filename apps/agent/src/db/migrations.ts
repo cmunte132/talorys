@@ -191,6 +191,11 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 3,
+    name: "message provenance",
+    statements: [`ALTER TABLE tal_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'chat'`],
+  },
+  {
+    version: 4,
     name: "memory history",
     statements: [
       // Lifecycle columns. Existing memories stay current ("active") with no relationships.

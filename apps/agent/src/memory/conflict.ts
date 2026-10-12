@@ -172,6 +172,9 @@ export function parseAiVerdict(text: string): AiVerdict | null {
   }
 }
 
+/** Room for reasoning models, which think before answering; a small cap leaves them with empty text. */
+export const AI_CHECK_MAX_OUTPUT_TOKENS = 1500;
+
 /**
  * Asks the chat model whether two statements actually conflict. The statements are
  * passed as quoted data. The verdict can only dismiss a review or explain it — it
@@ -187,7 +190,7 @@ export async function aiCheckConflict(provider: AIProvider, older: string, newer
         content: `Older fact (JSON string): ${JSON.stringify(older.slice(0, 500))}\nNewer fact (JSON string): ${JSON.stringify(newer.slice(0, 500))}\n\nDoes the newer fact make the older one no longer true? Answer as {"relationship": "supersedes" | "refines" | "contradicts" | "complements" | "unrelated", "confidence": 0-1, "reason": "<short reason>"}.`,
       },
     ],
-    maxOutputTokens: 120,
+    maxOutputTokens: AI_CHECK_MAX_OUTPUT_TOKENS,
     temperature: 0,
     signal,
   });
