@@ -1,6 +1,8 @@
 import type { Env } from "../env";
 import type { Database } from "../db/database";
 import type { SettingsService } from "../services/settings";
+import { estimateTokens, modelUsage, tokens, type Usage } from "../ai/provider";
+import { UsageService } from "../services/usage";
 
 /** Dimensions of the mock embedder's vectors. */
 export const EMBEDDING_DIMS = 384;
@@ -16,7 +18,13 @@ export const MODEL_DIMS: Record<string, number> = {
 export interface Embedder {
   readonly model: string;
   readonly dims: number;
-  embed(texts: string[]): Promise<Float32Array[]>;
+  /** False for a local mock; custom embedders default to potentially billable. */
+  readonly billable?: boolean;
+  embed(texts: string[], onUsage?: (usage: Usage) => void): Promise<Float32Array[]>;
+}
+
+function estimatedEmbeddingTokens(texts: string[]): number {
+  return texts.reduce((total, text) => total + estimateTokens(text), 0);
 }
 
 /**
@@ -26,6 +34,7 @@ export interface Embedder {
  */
 export class WorkersAiEmbedder implements Embedder {
   private size: number;
+  readonly billable = true;
 
   constructor(
     private readonly ai: Ai,
@@ -38,9 +47,16 @@ export class WorkersAiEmbedder implements Embedder {
     return this.size;
   }
 
-  async embed(texts: string[]): Promise<Float32Array[]> {
+  async embed(texts: string[], onUsage?: (usage: Usage) => void): Promise<Float32Array[]> {
     if (texts.length === 0) return [];
-    const result = (await this.ai.run(this.model as "@cf/baai/bge-small-en-v1.5", { text: texts })) as { data?: unknown };
+    const result = (await this.ai.run(this.model as "@cf/baai/bge-small-en-v1.5", { text: texts })) as {
+      data?: unknown;
+      usage?: { prompt_tokens?: unknown; input_tokens?: unknown; total_tokens?: unknown };
+    };
+    const count = result?.usage?.prompt_tokens ?? result?.usage?.input_tokens ?? result?.usage?.total_tokens;
+    const reported = typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : undefined;
+    onUsage?.(modelUsage(this.model, this.billable,
+      tokens(reported, reported === undefined ? estimatedEmbeddingTokens(texts) : 0)));
     const data = result?.data;
     if (!Array.isArray(data) || data.length !== texts.length) {
       throw new Error(`Embedding response had ${Array.isArray(data) ? data.length : "no"} vectors for ${texts.length} texts`);
@@ -83,8 +99,11 @@ function fnv1a32(s: string): number {
 export class MockEmbedder implements Embedder {
   readonly model = "mock-bge-384";
   readonly dims = EMBEDDING_DIMS;
+  readonly billable = false;
 
-  async embed(texts: string[]): Promise<Float32Array[]> {
+  async embed(texts: string[], onUsage?: (usage: Usage) => void): Promise<Float32Array[]> {
+    if (texts.length > 0) onUsage?.(modelUsage(this.model, this.billable,
+      tokens(undefined, estimatedEmbeddingTokens(texts))));
     return texts.map((t) => this.vector(t));
   }
 
@@ -177,4 +196,15 @@ export function recordEmbeddings(db: Database, day: string, requests: number, to
     Math.round(requests),
     Math.round(tokens),
   );
+}
+
+/** Atomically update the resettable semantic cap and durable model usage history. */
+export function recordEmbeddingCall(db: Database, day: string, embedder: Embedder, texts: string[], usage?: Usage): void {
+  const estimatedInput = usage && usage.inputTokens.estimated > 0
+    ? usage.inputTokens.estimated : estimatedEmbeddingTokens(texts);
+  db.transaction(() => {
+    recordEmbeddings(db, day, 1, estimatedInput);
+    new UsageService(db).record(usage ?? modelUsage(embedder.model, embedder.billable !== false,
+      tokens(undefined, estimatedInput)), day, "embedding");
+  });
 }

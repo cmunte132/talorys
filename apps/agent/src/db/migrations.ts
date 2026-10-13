@@ -13,6 +13,8 @@ export interface Migration {
   version: number;
   name: string;
   statements: string[];
+  /** Conditional data migration, in the same transaction as the schema version. */
+  after?: (db: Database) => void;
 }
 
 export const MIGRATIONS: Migration[] = [
@@ -217,6 +219,39 @@ export const MIGRATIONS: Migration[] = [
       `CREATE INDEX IF NOT EXISTS tal_memory_reviews_other ON tal_memory_reviews(other_id)`,
     ],
   },
+  {
+    version: 5,
+    name: "token provenance and model consumption",
+    statements: [
+      `CREATE TABLE tal_model_usage_daily (
+        day TEXT NOT NULL,
+        model TEXT NOT NULL,
+        billable INTEGER NOT NULL,
+        input_tokens_reported INTEGER NOT NULL DEFAULT 0,
+        output_tokens_reported INTEGER NOT NULL DEFAULT 0,
+        input_tokens_estimated INTEGER NOT NULL DEFAULT 0,
+        output_tokens_estimated INTEGER NOT NULL DEFAULT 0,
+        embedding_requests INTEGER NOT NULL DEFAULT 0,
+        neurons_estimate REAL NOT NULL DEFAULT 0,
+        cost_usd_estimate REAL NOT NULL DEFAULT 0,
+        priced_calls INTEGER NOT NULL DEFAULT 0,
+        unpriced_calls INTEGER NOT NULL DEFAULT 0,
+        mock_calls INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (day, model, billable)
+      )`,
+    ],
+    after: (db) => {
+      // Semantic tables are lazy. Preserve old estimates without inventing their model.
+      if (db.one(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tal_semantic_usage'`)) {
+        db.run(
+          `INSERT INTO tal_model_usage_daily (day, model, billable, input_tokens_estimated, embedding_requests, unpriced_calls)
+           SELECT day, '(legacy embeddings)', 1, embedded_tokens_estimate, embedding_requests, embedding_requests
+           FROM tal_semantic_usage`,
+        );
+      }
+      // Existing tal_usage_daily token columns stay untouched: provenance/model are unknown.
+    },
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
@@ -237,6 +272,7 @@ export function migrate(db: Database, migrations: Migration[] = MIGRATIONS): num
     if (m.version <= version) continue;
     db.transaction(() => {
       for (const statement of m.statements) db.run(statement);
+      m.after?.(db);
       db.run(
         `INSERT INTO tal_schema (id, version, updated_at) VALUES (1, ?, ?)
          ON CONFLICT(id) DO UPDATE SET version = excluded.version, updated_at = excluded.updated_at`,

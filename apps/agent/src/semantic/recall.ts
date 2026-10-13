@@ -1,10 +1,10 @@
 import type { Memory } from "@talorys/shared";
 import type { Env } from "../env";
-import { estimateTokens } from "../ai/provider";
+import type { Usage } from "../ai/provider";
 import type { Services } from "../services/container";
 import { UsageService } from "../services/usage";
 import type { SemanticConfig } from "./config";
-import { MODEL_DIMS, createEmbedder, embeddingsToday, recordEmbeddings } from "./embeddings";
+import { MODEL_DIMS, createEmbedder, embeddingsToday, recordEmbeddingCall } from "./embeddings";
 import { type IndexerContext, runIndexer } from "./indexer";
 import { ensureSemanticSchema } from "./migrations";
 import { cachedVectors, dot, normalize } from "./vectorStore";
@@ -80,14 +80,15 @@ async function embedQuery(ctx: SemanticContext, query: string): Promise<Float32A
   if (!embedder) return null;
   const day = UsageService.day();
   if (embeddingsToday(db, day) >= config.maxEmbeddingsPerDay) return null;
+  let usage: Usage | undefined;
   try {
-    const [vector] = await embedder.embed([query]);
+    const [vector] = await embedder.embed([query], (reported) => { usage = reported; });
     return vector && vector.length === embedder.dims ? vector : null;
   } catch (error) {
     console.warn("Semantic query embedding failed; using keyword recall", error instanceof Error ? error.message : String(error));
     return null;
   } finally {
-    recordEmbeddings(db, day, 1, estimateTokens(query));
+    recordEmbeddingCall(db, day, embedder, [query], usage);
   }
 }
 

@@ -1,8 +1,8 @@
 import { type Database, now } from "../db/database";
-import { estimateTokens } from "../ai/provider";
+import type { Usage } from "../ai/provider";
 import { UsageService } from "../services/usage";
 import type { SemanticConfig } from "./config";
-import { type Embedder, contentHash, embeddingText, embeddingsToday, recordEmbeddings } from "./embeddings";
+import { type Embedder, contentHash, embeddingText, embeddingsToday, recordEmbeddingCall } from "./embeddings";
 import { ensureSemanticSchema } from "./migrations";
 import { deleteAllVectors, deleteVector, purgeOrphanVectors, upsertVectors, vectorMeta } from "./vectorStore";
 
@@ -130,11 +130,12 @@ async function indexOnce({ db, config, embedder }: IndexerContext, maxEmbed: num
     if (batch.length === 0) return report;
     const texts = batch.map((p) => p.text);
     let vectors: Float32Array[];
+    let usage: Usage | undefined;
     try {
-      vectors = await embedder.embed(texts);
+      vectors = await embedder.embed(texts, (reported) => { usage = reported; });
     } finally {
-      // The call was made, so it counts against the cap even when it failed.
-      recordEmbeddings(db, day, 1, texts.reduce((n, t) => n + estimateTokens(t), 0));
+      // Attempted input remains an estimate when a failed call returned no usage.
+      recordEmbeddingCall(db, day, embedder, texts, usage);
     }
     if (vectors.length !== batch.length || vectors.some((v) => v.length !== embedder.dims)) {
       throw new Error(`Embedder returned ${vectors.length} vectors for ${batch.length} texts`);

@@ -171,7 +171,7 @@ export class MemoryHistoryService {
     const { limits } = this.settings.get();
     if (!provider || !this.usage.reserveAi(limits)) return null;
     try {
-      return await aiCheckConflict(provider, older, newer, signal);
+      return await aiCheckConflict(provider, older, newer, (usage) => this.usage.record(usage), signal);
     } catch {
       this.usage.increment({ ai_errors: 1 });
       return null;
