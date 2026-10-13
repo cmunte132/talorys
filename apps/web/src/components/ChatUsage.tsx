@@ -84,7 +84,7 @@ export function ChatUsage() {
                   <div className="flex justify-between gap-3"><dt>Scheduled AI runs</dt><dd className="tabular-nums text-fg">{data.today.scheduled_ai_runs.toLocaleString()} / {data.limits.maxScheduledAiRunsPerDay.toLocaleString()}</dd></div>
                 </dl>
               </div>
-              <p className="border-t border-border pt-3 text-xs text-fg-subtle">Local estimates, not a Cloudflare bill. Resets at 00:00 UTC.</p>
+              <p className="border-t border-border pt-3 text-xs text-fg-subtle">Estimates, not a bill. Resets at 00:00 UTC.</p>
             </>}
           <Link to="/settings?tab=AI" onClick={() => setOpen(false)} className="mt-3 inline-block text-xs font-medium text-accent hover:underline">View usage & limits</Link>
         </div>
