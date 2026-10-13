@@ -306,6 +306,8 @@ describe("migration from the previous schema", () => {
       db.run(`DROP TABLE IF EXISTS tal_memory_reviews`);
       db.run(`DROP TABLE tal_model_usage_daily`);
       for (const col of ["status", "superseded_by", "valid_from", "valid_until"]) db.run(`ALTER TABLE tal_memories DROP COLUMN ${col}`);
+      // ...and what later migrations added.
+      for (const col of ["target_version", "payload", "preview"]) db.run(`ALTER TABLE tal_pending_actions DROP COLUMN ${col}`);
       db.run(`UPDATE tal_schema SET version = 3`);
       db.run(
         `INSERT INTO tal_memories (id, content, category, source, created_at, updated_at) VALUES ('legacy-1', 'Legacy memory about sailing', 'fact', 'manual', '2025-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z')`,
@@ -317,6 +319,7 @@ describe("migration from the previous schema", () => {
       const m = db.one(`SELECT * FROM tal_memories WHERE id = 'legacy-1'`);
       expect(m).toMatchObject({ content: "Legacy memory about sailing", status: "active", superseded_by: null, valid_from: null, valid_until: null });
       expect(agent.services.memories.search("sailing").map((x) => x.id)).toEqual(["legacy-1"]);
+      for (const s of MIGRATIONS.filter((m) => m.version > 3).flatMap((m) => m.statements)) expect(s).not.toMatch(/\bDROP\b/i);
     });
   });
 });

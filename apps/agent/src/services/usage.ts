@@ -126,6 +126,13 @@ export class UsageService {
     return (row?.scheduled_ai_runs ?? 0) < limits.maxScheduledAiRunsPerDay
       && (row?.ai_requests ?? 0) < limits.maxAiRequestsPerDay;
   }
+
+  /** Counts one scheduled run and its first model call if both budgets allow it; false means skip. */
+  reserveScheduledAi(limits: Limits): boolean {
+    if (!this.canRunScheduledAi(limits)) return false;
+    this.increment({ ai_requests: 1, scheduled_ai_runs: 1 });
+    return true;
+  }
 }
 
 export class ActivityLog {

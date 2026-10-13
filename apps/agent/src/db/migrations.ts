@@ -221,6 +221,15 @@ export const MIGRATIONS: Migration[] = [
   },
   {
     version: 5,
+    name: "approval target versions",
+    statements: [
+      `ALTER TABLE tal_pending_actions ADD COLUMN target_version TEXT`,
+      `ALTER TABLE tal_pending_actions ADD COLUMN payload TEXT`,
+      `ALTER TABLE tal_pending_actions ADD COLUMN preview TEXT`,
+    ],
+  },
+  {
+    version: 6,
     name: "token provenance and model consumption",
     statements: [
       `CREATE TABLE tal_model_usage_daily (

@@ -1,10 +1,10 @@
 import type { Memory } from "@talorys/shared";
 import type { Env } from "../env";
-import type { Usage } from "../ai/provider";
+import { estimateTokens, type Usage } from "../ai/provider";
 import type { Services } from "../services/container";
 import { UsageService } from "../services/usage";
 import type { SemanticConfig } from "./config";
-import { MODEL_DIMS, createEmbedder, embeddingsToday, recordEmbeddingCall } from "./embeddings";
+import { MODEL_DIMS, createEmbedder, recordEmbeddingCall, reserveEmbedding } from "./embeddings";
 import { type IndexerContext, runIndexer } from "./indexer";
 import { ensureSemanticSchema } from "./migrations";
 import { cachedVectors, dot, normalize } from "./vectorStore";
@@ -79,7 +79,8 @@ async function embedQuery(ctx: SemanticContext, query: string): Promise<Float32A
   const { db, config, embedder } = ctx;
   if (!embedder) return null;
   const day = UsageService.day();
-  if (embeddingsToday(db, day) >= config.maxEmbeddingsPerDay) return null;
+  // Reserved before the call (which counts even if it fails), so concurrent turns cannot overrun the cap.
+  if (!reserveEmbedding(db, day, config.maxEmbeddingsPerDay, estimateTokens(query))) return null;
   let usage: Usage | undefined;
   try {
     const [vector] = await embedder.embed([query], (reported) => { usage = reported; });

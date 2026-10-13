@@ -187,6 +187,16 @@ export function embeddingsToday(db: Database, day: string): number {
   return db.one<{ n: number }>(`SELECT embedding_requests AS n FROM tal_semantic_usage WHERE day = ?`, day)?.n ?? 0;
 }
 
+/**
+ * Counts one embedding request before it is made, if the day's cap allows it. Check and
+ * record happen in one synchronous step, so concurrent callers cannot all pass the cap.
+ */
+export function reserveEmbedding(db: Database, day: string, cap: number, tokens: number): boolean {
+  if (embeddingsToday(db, day) >= cap) return false;
+  recordEmbeddings(db, day, 1, tokens);
+  return true;
+}
+
 export function recordEmbeddings(db: Database, day: string, requests: number, tokens: number): void {
   db.run(
     `INSERT INTO tal_semantic_usage (day, embedding_requests, embedded_tokens_estimate) VALUES (?, ?, ?)
@@ -198,13 +208,11 @@ export function recordEmbeddings(db: Database, day: string, requests: number, to
   );
 }
 
-/** Atomically update the resettable semantic cap and durable model usage history. */
+/**
+ * Records one finished (or failed) embedding call in the durable model usage history. The
+ * resettable semantic cap was already counted by `reserveEmbedding` before the call.
+ */
 export function recordEmbeddingCall(db: Database, day: string, embedder: Embedder, texts: string[], usage?: Usage): void {
-  const estimatedInput = usage && usage.inputTokens.estimated > 0
-    ? usage.inputTokens.estimated : estimatedEmbeddingTokens(texts);
-  db.transaction(() => {
-    recordEmbeddings(db, day, 1, estimatedInput);
-    new UsageService(db).record(usage ?? modelUsage(embedder.model, embedder.billable !== false,
-      tokens(undefined, estimatedInput)), day, "embedding");
-  });
+  new UsageService(db).record(usage ?? modelUsage(embedder.model, embedder.billable !== false,
+    tokens(undefined, estimatedEmbeddingTokens(texts))), day, "embedding");
 }

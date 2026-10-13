@@ -16,6 +16,7 @@ import {
   encodeVector,
   recordEmbeddingCall,
   recordEmbeddings,
+  reserveEmbedding,
 } from "../src/semantic/embeddings";
 import { dropSemanticData, ensureSemanticSchema } from "../src/semantic/migrations";
 import type { Env } from "../src/env";
@@ -172,6 +173,7 @@ describe("semantic embeddings", () => {
       const before = usage.today();
       const embedder = new MockEmbedder();
       try {
+        expect(reserveEmbedding(db, day, 10, 2)).toBe(true);
         await embedder.embed(["abcdefgh"], (receipt) => {
           recordEmbeddingCall(db, day, embedder, ["abcdefgh"], receipt);
         });
@@ -194,6 +196,7 @@ describe("semantic embeddings", () => {
           mock_calls: before.mock_calls + 1,
         });
 
+        expect(reserveEmbedding(db, day, 10, 3)).toBe(true);
         await embedder.embed(["abcdefghijkl"]);
         recordEmbeddingCall(db, day, embedder, ["abcdefghijkl"]);
         expect(embeddingsToday(db, day)).toBe(1);

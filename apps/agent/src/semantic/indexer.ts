@@ -1,8 +1,8 @@
 import { type Database, now } from "../db/database";
-import type { Usage } from "../ai/provider";
+import { estimateTokens, type Usage } from "../ai/provider";
 import { UsageService } from "../services/usage";
 import type { SemanticConfig } from "./config";
-import { type Embedder, contentHash, embeddingText, embeddingsToday, recordEmbeddingCall } from "./embeddings";
+import { type Embedder, contentHash, embeddingText, recordEmbeddingCall, reserveEmbedding } from "./embeddings";
 import { ensureSemanticSchema } from "./migrations";
 import { deleteAllVectors, deleteVector, purgeOrphanVectors, upsertVectors, vectorMeta } from "./vectorStore";
 
@@ -123,12 +123,14 @@ async function indexOnce({ db, config, embedder }: IndexerContext, maxEmbed: num
     report.pending = pending.length;
     if (!embedder) return { ...report, skipped: "no-embedder" };
     if (pending.length === 0) return report;
-    const day = UsageService.day();
-    if (embeddingsToday(db, day) >= config.maxEmbeddingsPerDay) return { ...report, capped: true };
-
     const batch = pending.slice(0, Math.max(0, maxEmbed));
     if (batch.length === 0) return report;
     const texts = batch.map((p) => p.text);
+    const day = UsageService.day();
+    // Reserved before the call (which counts even if it fails), so a concurrent query embedding cannot overrun the cap.
+    if (!reserveEmbedding(db, day, config.maxEmbeddingsPerDay, texts.reduce((n, t) => n + estimateTokens(t), 0))) {
+      return { ...report, capped: true };
+    }
     let vectors: Float32Array[];
     let usage: Usage | undefined;
     try {

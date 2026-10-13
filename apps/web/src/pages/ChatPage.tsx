@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { ChatMessage, Conversation, PendingAction, ToolActivity } from "@talorys/shared";
+import type { ChatMessage, Conversation, ToolActivity } from "@talorys/shared";
 import {
   AlertTriangle,
   ArrowUp,
@@ -15,11 +15,11 @@ import {
   Plus,
   RotateCcw,
   Search,
-  ShieldAlert,
   Square,
   Trash2,
   XCircle,
 } from "lucide-react";
+import { ApprovalCard } from "../components/ApprovalCard";
 import { ChatUsage } from "../components/ChatUsage";
 import { Markdown } from "../components/Markdown";
 import { Button, ConfirmDialog, Dialog, Input, Spinner } from "../components/ui";
@@ -31,6 +31,7 @@ import { cn, copyText, relativeTime } from "../lib/utils";
 interface StreamState {
   conversationId: string | null;
   userText: string;
+  userMessageId: string | null;
   assistantId: string | null;
   text: string;
   tools: ToolActivity[];
@@ -88,7 +89,7 @@ export function ChatPage() {
         old ? { ...old, messages: old.messages.filter((m) => !(m.role === "assistant" && m.status !== "complete" && m === old.messages.at(-1))) } : old,
       );
     }
-    setStream({ conversationId: convId, userText: opts.retry ? "" : text, assistantId: null, text: "", tools: [], error: null, done: false });
+    setStream({ conversationId: convId, userText: opts.retry ? "" : text, userMessageId: null, assistantId: null, text: "", tools: [], error: null, done: false });
     try {
       await streamChat(
         { conversation_id: convId ?? undefined, message: opts.retry ? "retry" : text, retry: opts.retry },
@@ -102,7 +103,7 @@ export function ChatPage() {
                 convId = event.conversation_id;
                 navigate(`/chat/${convId}`, { replace: true });
               }
-              setStream((s) => s && { ...s, conversationId: event.conversation_id, assistantId: event.assistant_message_id });
+              setStream((s) => s && { ...s, conversationId: event.conversation_id, userMessageId: event.user_message_id, assistantId: event.assistant_message_id });
               break;
             case "text":
               setStream((s) => s && { ...s, text: s.text + event.delta });
@@ -203,7 +204,8 @@ export function ChatPage() {
               )}
               {streamHere && (
                 <>
-                  {streamHere.userText && !messages.some((m) => m.role === "user" && m.content === streamHere.userText && streamHere.done) && (
+                  {/* The server saves the owner's message before streaming, so a refetch mid-stream can already include it. */}
+                  {streamHere.userText && !messages.some((m) => m.id === streamHere.userMessageId) && (
                     <UserBubble text={streamHere.userText} />
                   )}
                   <AssistantBubble
@@ -492,68 +494,6 @@ function ToolChip({ tool }: { tool: ToolActivity }) {
       )}
       <span className="truncate">{tool.label}</span>
     </span>
-  );
-}
-
-const APPROVAL_DONE: Record<Exclude<PendingAction["status"], "pending">, string> = {
-  approved: "Approved and done",
-  cancelled: "Declined — nothing was changed",
-  expired: "Expired — ask again if you still want this",
-  failed: "Approved, but it failed",
-};
-
-/** The only way a destructive action proposed by the agent can run. */
-function ApprovalCard({ action: initial }: { action: PendingAction }) {
-  const qc = useQueryClient();
-  const [action, setAction] = useState(initial);
-  useEffect(() => setAction(initial), [initial]);
-  const decide = useApiMutation(
-    (decision: "approve" | "cancel") =>
-      api<{ action: PendingAction }>(`/actions/${action.id}/${decision}`, { method: "POST", body: {} }).catch((error: unknown) => {
-        // Already handled or expired elsewhere: show the current state.
-        void qc.invalidateQueries({ queryKey: ["conversation"] });
-        throw error;
-      }),
-    {
-      invalidate: [["conversation"], keys.tasks, ["notes"], ["memories"], keys.automations],
-      onSuccess: (r) => setAction(r.action),
-    },
-  );
-  const status = action.status === "pending" && Date.parse(action.expires_at) <= Date.now() ? "expired" : action.status;
-
-  if (status !== "pending") {
-    return (
-      <div className="flex items-start gap-2 rounded-lg border border-border bg-subtle px-3 py-2 text-sm text-fg-muted">
-        {status === "approved" ? (
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-        ) : (
-          <XCircle className={cn("mt-0.5 h-4 w-4 shrink-0", status === "failed" && "text-danger")} />
-        )}
-        <span className="min-w-0 break-words">
-          <span className="text-fg">{action.summary}</span> · {APPROVAL_DONE[status]}
-          {status === "failed" && action.error ? `: ${action.error}` : ""}
-        </span>
-      </div>
-    );
-  }
-  return (
-    <div role="group" aria-label="Approval needed" className="rounded-lg border border-warning/40 bg-surface px-3 py-2.5 shadow-sm">
-      <div className="flex items-start gap-2 text-sm">
-        <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-        <div className="min-w-0">
-          <p className="break-words font-medium text-fg">{action.summary}?</p>
-          <p className="text-xs text-fg-muted">Nothing changes unless you approve.</p>
-        </div>
-      </div>
-      <div className="mt-2.5 flex justify-end gap-2">
-        <Button size="sm" variant="ghost" disabled={decide.isPending} onClick={() => decide.mutate("cancel")}>
-          Decline
-        </Button>
-        <Button size="sm" variant="danger" loading={decide.isPending && decide.variables === "approve"} disabled={decide.isPending} onClick={() => decide.mutate("approve")}>
-          Approve
-        </Button>
-      </div>
-    </div>
   );
 }
 

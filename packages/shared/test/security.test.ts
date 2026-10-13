@@ -7,6 +7,9 @@ describe("password policy", () => {
   it("rejects weak passwords and accepts reasonable ones", () => {
     expect(checkPasswordStrength("short1!")).toMatch(/at least/);
     expect(checkPasswordStrength("aaaaaaaaaaaa")).toMatch(/repeating/);
+    expect(checkPasswordStrength("🔐".repeat(12))).toMatch(/repeating/);
+    expect(checkPasswordStrength("🇺🇸".repeat(5))).toMatch(/repeating/);
+    expect(checkPasswordStrength("👨‍👩‍👧‍👦".repeat(3))).toMatch(/repeating/);
     expect(checkPasswordStrength("alllowercase")).toMatch(/Mix/);
     expect(checkPasswordStrength("password1234")).toMatch(/common/);
     expect(checkPasswordStrength("Sunny-Garden-42")).toBeNull();
@@ -27,6 +30,8 @@ describe("password hashing", () => {
     expect(await verifyPassword("Sunny-Garden-42", tampered)).toBe(false);
     expect(await verifyPassword("x", "plaintext")).toBe(false);
     expect(await verifyPassword("x", "pbkdf2-sha256$1$abc$def")).toBe(false); // too few iterations
+    expect(await verifyPassword("x", "pbkdf2-sha256$50000$c2FsdA$a")).toBe(false); // regex-valid but invalid base64url hash length (throws in atob)
+    expect(await verifyPassword("x", "pbkdf2-sha256$50000$a$aGFzaA")).toBe(false); // regex-valid but invalid base64url salt length (throws in atob)
   });
 
   it("uses unique salts", async () => {

@@ -6,6 +6,7 @@ import { body } from "../middleware";
 import { schemaVersion } from "../../db/migrations";
 import { exportData, importData } from "../../services/backup";
 import { WORKERS_AI_PRICING } from "../../ai/pricing";
+import { checkForUpdate } from "../../services/update-check";
 
 export const systemRoutes = new Hono<AppEnv>();
 
@@ -63,7 +64,7 @@ systemRoutes.get("/usage", (c) => {
     limits: settings.limits,
     model: settings.model,
     note:
-      "Provider-reported tokens are separate from fallback estimates (~4 characters per token). Neurons and USD are local estimates before free allocation, not a Cloudflare bill or remaining balance; account-wide usage is excluded. Interrupted chat steps use received counts or fallback estimates. Embedding attempts can include estimated input even when they fail.",
+      "Local estimates for this app before Cloudflare's free allocation, not a bill. Tokens marked est. are ~4 characters per token. Embeddings have their own daily cap.",
     dashboard_url: "https://dash.cloudflare.com/?to=/:account/ai/workers-ai",
     pricing: WORKERS_AI_PRICING,
   };
@@ -81,6 +82,11 @@ systemRoutes.get("/system", (c) => {
     ai_provider: c.env.agent.aiProvider()?.id ?? "none",
     environment: c.env.env.TALORYS_ENV === "development" ? "development" : "production",
   });
+});
+
+systemRoutes.get("/system/update", async (c) => {
+  const current = c.env.env.TALORYS_DEPLOYED_VERSION ?? TALORYS_VERSION;
+  return c.json(await checkForUpdate(c.env.agent.services.settings, current));
 });
 
 systemRoutes.get("/activity", (c) => c.json({ activity: c.env.agent.services.activity.list(100) }));

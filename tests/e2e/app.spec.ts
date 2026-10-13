@@ -31,6 +31,22 @@ test.describe("Talorys owner experience", () => {
     await expect(page.getByRole("heading", { name: "add task e2e review the roadmap" })).toBeVisible();
   });
 
+  test("the first message of a new chat shows once while the reply streams @mobile", async ({ page }) => {
+    await login(page);
+    const text = "tell me something about e2e duplicate bubbles";
+    const loaded = page.waitForResponse((r) => /\/api\/conversations\/[0-9a-f-]{36}$/.test(r.url()));
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill(text);
+    await page.keyboard.press("Enter");
+    // The saved conversation loads mid-stream and already contains the owner's message.
+    await loaded;
+    const bubbles = page.locator("section .overflow-y-auto").getByText(text, { exact: true });
+    await expect(page.getByRole("button", { name: "Stop generating" })).toBeVisible();
+    // Count once rather than retrying: the duplicate only lasts until the reply finishes.
+    expect(await bubbles.count()).toBe(1);
+    await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
+    await expect(bubbles).toHaveCount(1);
+  });
+
   test("deleting through chat waits for the owner to approve the exact task", async ({ page }) => {
     await login(page);
     const composer = page.getByRole("textbox", { name: "Message", exact: true });
@@ -51,6 +67,27 @@ test.describe("Talorys owner experience", () => {
     await expect(page.getByText(/Delete task “e2e approve-me” · Approved and done/)).toBeVisible();
     await page.getByRole("link", { name: "Tasks" }).first().click();
     await expect(page.getByText("e2e approve-me")).toHaveCount(0);
+  });
+
+  test("a proposed note rewrite shows the exact new text before approval", async ({ page }) => {
+    await login(page);
+    await page.getByRole("link", { name: "Notes" }).first().click();
+    await page.getByRole("button", { name: "New note" }).click();
+    await page.getByLabel("Note title").fill("e2e Rewrite me");
+    await page.getByLabel("Note content").fill("Original packing list");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const noteUrl = page.url();
+    const noteId = new URL(noteUrl).pathname.split("/").pop();
+    await page.getByRole("link", { name: "Chat" }).first().click();
+    await page.getByRole("textbox", { name: "Message", exact: true }).fill(`rewrite note ${noteId} as: Only the charger now`);
+    await page.keyboard.press("Enter");
+    const card = page.getByRole("group", { name: "Approval needed" });
+    await expect(card.getByText("Rewrite note “e2e Rewrite me” (21 → 20 characters)?")).toBeVisible();
+    await expect(card.getByRole("region", { name: "Proposed text" })).toHaveText("Only the charger now");
+    await card.getByRole("button", { name: "Approve" }).click();
+    await expect(page.getByText(/Rewrite note “e2e Rewrite me” .* · Approved and done/)).toBeVisible();
+    await page.goto(noteUrl);
+    await expect(page.getByRole("textbox", { name: "Note content" })).toHaveValue("Only the charger now");
   });
 
   test("conversations can be renamed and deleted", async ({ page }) => {

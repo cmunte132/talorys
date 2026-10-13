@@ -114,7 +114,7 @@ describe("local model consumption", () => {
       db.run("INSERT INTO tal_semantic_usage (day, embedding_requests, embedded_tokens_estimate) VALUES (?, 2, 50)", day);
       db.run("INSERT INTO tal_usage_daily (day, ai_requests, input_tokens, output_tokens) VALUES (?, 3, 120, 20)", day);
       db.run("DROP TABLE tal_model_usage_daily");
-      db.run("UPDATE tal_schema SET version = 4 WHERE id = 1");
+      db.run("UPDATE tal_schema SET version = 5 WHERE id = 1");
       migrate(db);
       migrate(db);
       expect(ledger.today()).toMatchObject({ ai_requests: 3, input_tokens_legacy: 120, output_tokens_legacy: 20,
