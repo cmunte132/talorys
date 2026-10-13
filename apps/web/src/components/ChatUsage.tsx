@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { useUsage } from "../hooks/queries";
 import { cn } from "../lib/utils";
 import { Button, Spinner } from "./ui";
-import { UsageBreakdown, UsagePricingNote } from "./UsageBreakdown";
+import { UsageBreakdown } from "./UsageBreakdown";
 
 export function ChatUsage() {
   const [open, setOpen] = useState(false);
@@ -84,8 +84,7 @@ export function ChatUsage() {
                   <div className="flex justify-between gap-3"><dt>Scheduled AI runs</dt><dd className="tabular-nums text-fg">{data.today.scheduled_ai_runs.toLocaleString()} / {data.limits.maxScheduledAiRunsPerDay.toLocaleString()}</dd></div>
                 </dl>
               </div>
-              <p className="border-t border-border pt-3 text-xs text-fg-subtle">Across chats, summaries, automations, memory checks and embeddings. The app request cap excludes embeddings. Resets at 00:00 UTC.</p>
-              <div className="mt-2"><UsagePricingNote data={data} /></div>
+              <p className="border-t border-border pt-3 text-xs text-fg-subtle">Local estimates, not a Cloudflare bill. Resets at 00:00 UTC.</p>
             </>}
           <Link to="/settings?tab=AI" onClick={() => setOpen(false)} className="mt-3 inline-block text-xs font-medium text-accent hover:underline">View usage & limits</Link>
         </div>

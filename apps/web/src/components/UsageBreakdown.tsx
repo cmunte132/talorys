@@ -41,14 +41,15 @@ export function UsageBreakdown({ counters, compact = false }: { counters: UsageC
         <dt>{label}</dt><dd className="shrink-0 tabular-nums text-fg">{value}</dd>
       </div>)}
     </dl>
-    <div className="mt-3 space-y-1 text-xs leading-5 text-fg-subtle">
+    {/* The compact popover links to Settings, which carries these notes. */}
+    {!compact && <div className="mt-3 space-y-1 text-xs leading-5 text-fg-subtle">
       {counters.priced_calls === 0
         ? <p>Price estimates unavailable: no priced billable calls recorded.</p>
         : <p>{partial ? "Partial subtotal" : "Price coverage"}: {counters.priced_calls.toLocaleString()} priced billable calls.</p>}
       {counters.unpriced_calls > 0 && <p>{counters.unpriced_calls.toLocaleString()} unpriced calls (unsupported or unknown model); not assumed free.</p>}
       {legacy > 0 && <p>Legacy tokens have unknown model and provenance and are excluded from pricing.</p>}
       {counters.mock_calls > 0 && <p>Demo/mock tokens are estimates; mock calls consume no real AI and are excluded from pricing.</p>}
-    </div>
+    </div>}
   </div>;
 }
 
