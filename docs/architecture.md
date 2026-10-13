@@ -82,6 +82,38 @@ added.
 Adding a provider (OpenRouter, Gemini, …) means implementing `AIProvider` and
 selecting it in `TalorysAgent.aiProvider()`.
 
+Usage is additive per model step, including summaries and memory
+inference. Input and output tokens each preserve provider-reported values when
+present (including zero); missing directions use a separate fallback estimate.
+Embedding calls are metered too, but do not consume the chat-model request cap.
+Mock calls carry estimated tokens and are nonbillable.
+
+The Workers AI adapter observes raw response usage before SDK normalization,
+which otherwise turns missing counts into zero. Streaming usage is emitted per
+completed step or binding call left unfinished by a quiet abort, not from
+cumulative turn totals. Interrupted steps retain received counts and estimate
+missing directions from the actual SDK-built request and observed text,
+reasoning and tool-call output. Completed usage survives a later failure.
+Ordinary failed calls without a receipt remain unmetered; generation beyond
+the observed stream cannot be measured.
+
+The SSE usage observer declares `eventsource-parser` directly instead of relying
+on an SDK's transitive dependency.
+Its native buffer limit bounds pending event data, not heartbeat traffic.
+Oversized incomplete events stop usage observation without aborting inference.
+
+Local Neuron and USD estimates use a static model-specific published rate table
+at record time and persist the result rather than repricing history. Unknown
+models are counted as unpriced; mixed coverage is a partial subtotal, never an
+exact bill. Legacy mixed chat tokens retain unknown model/provenance and are
+excluded from pricing. Historical embedding estimates keep their estimated
+provenance but have an unknown model and remain unpriced. Cached input receives
+a separate rate only when both its count and that model's cached rate are known.
+With no priced billable calls, estimates are unavailable, not zero.
+The UI exposes the pricing date and source. Accounting needs no account
+credentials or additional network requests, excludes account-wide usage and
+free allowances, and does not measure Cloudflare's remaining quota.
+
 ## Tools
 
 Tools live in `apps/agent/src/tools/` and are registered in `tools/index.ts`.
@@ -97,9 +129,15 @@ shell, code execution, network or credentials.
 `tal_settings`, `tal_conversations`, `tal_messages`, `tal_memories`,
 `tal_projects`, `tal_tasks`, `tal_notes`, `tal_automations`,
 `tal_automation_runs`, `tal_notifications`, `tal_activity`, `tal_sessions`,
-`tal_login_attempts`, `tal_usage_daily`, `tal_memory_reviews`, plus FTS tables. Migration 3 added `tal_messages.source` (chat or import); migration 4 added memory lifecycle
+`tal_login_attempts`, `tal_usage_daily`, `tal_model_usage_daily`,
+`tal_memory_reviews`, plus FTS tables. Migration 3 added `tal_messages.source`
+(chat or import); migration 4 added memory lifecycle
 columns (`status`, `superseded_by`, `valid_from`, `valid_until`) and the
 `tal_memory_reviews` table; existing memories default to `active`.
+Migration 5 adds per-day, per-model provenance and persisted price estimates,
+leaving legacy chat tokens untouched. Existing semantic embedding counters are
+copied as unpriced historical estimates without creating semantic tables when
+the feature has never been enabled.
 
 ## Free-tier choices
 
