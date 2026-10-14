@@ -55,7 +55,7 @@ user-facing description.
 
 | Module | Responsibility |
 | --- | --- |
-| `conflict.ts` | Deterministic relationship rules; optional, validated AI double-check |
+| `conflict.ts` | Deterministic relationship rules; optional Clef (Workers AI decision model) check: request, response validation, decision |
 | `lifecycle.ts` | Supersede / status changes / history / review resolution; cycle prevention; stated-date extraction |
 | `intent.ts` | Detects questions about the past |
 | `service.ts` | `MemoryHistoryService`: write paths, conflict pipeline, complete deletion (incl. semantic vectors), prompt labels |
@@ -63,7 +63,8 @@ user-facing description.
 Write paths (`POST/PATCH /api/memories`, `/correct`, the `remember` and
 `update_memory` tools) save the memory first, then run conflict detection. It
 never runs per chat message and uses no AI unless the owner enables the
-double-check. Both recall paths leave past (`historical`) memories out unless
+AI conflict check. Then rule hits and semantically similar memories
+(`semantic/neighbors.ts`) only nominate, and one Clef call per save decides. Both recall paths leave past (`historical`) memories out unless
 the question is about the past; then earlier versions of the recalled facts are
 added.
 
@@ -131,11 +132,13 @@ shell, code execution, network or credentials.
 `tal_projects`, `tal_tasks`, `tal_notes`, `tal_automations`,
 `tal_automation_runs`, `tal_notifications`, `tal_activity`, `tal_sessions`,
 `tal_login_attempts`, `tal_usage_daily`, `tal_model_usage_daily`,
-`tal_memory_reviews`, plus FTS tables. Migration 3 added `tal_messages.source`
-(chat or import); migration 4 added memory lifecycle
+`tal_memory_reviews`, `tal_push_subscriptions`, plus FTS tables. Migration 3
+added `tal_messages.source` (chat or import); migration 4 added memory lifecycle
 columns (`status`, `superseded_by`, `valid_from`, `valid_until`) and the
-`tal_memory_reviews` table; existing memories default to `active`.
-Migration 5 adds per-day, per-model provenance and persisted price estimates,
+`tal_memory_reviews` table; existing memories default to `active`. Migration 5
+added approval binding columns to `tal_pending_actions` (`target_version`,
+`payload`, `preview`); migration 6 added `tal_push_subscriptions` for Web Push devices.
+Migration 7 adds per-day, per-model provenance and persisted price estimates,
 leaving legacy chat tokens untouched. Existing semantic embedding counters are
 copied as unpriced historical estimates without creating semantic tables when
 the feature has never been enabled.

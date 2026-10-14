@@ -13,8 +13,9 @@ npm run dev
 
 `scripts/dev-setup.mjs` creates `apps/agent/.dev.vars` (git-ignored) with
 `TALORYS_ENV=development`, the mock AI provider, a local password hash and a
-session secret. Set `TALORYS_DEV_PASSWORD` before the first run to choose the
-password, or delete the file to regenerate.
+session secret and a Web Push key pair (browsers allow push on `localhost`). Set `TALORYS_DEV_PASSWORD` before the first run to choose the
+password, or delete the file to regenerate. A file made before push existed gets a
+Web Push key pair added on the next run; nothing else in it changes.
 
 ### Real Workers AI locally
 

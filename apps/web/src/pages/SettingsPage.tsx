@@ -5,6 +5,7 @@ import { checkPasswordStrength, GITHUB_URL, LIMIT_CEILINGS, type Limits, type Me
 import { Download, ExternalLink, LogOut, Monitor, Moon, Sun, Upload } from "lucide-react";
 import { Badge, Button, Card, ConfirmDialog, ErrorNotice, Input, Label, PageHeader, Select, Spinner, Switch } from "../components/ui";
 import { SemanticRecallCard } from "../components/SemanticRecallCard";
+import { PushNotificationsCard } from "../components/PushNotificationsCard";
 import { UsageBreakdown, UsagePricingNote } from "../components/UsageBreakdown";
 import { keys, useApiMutation, useSessions, useSettings, useSystemInfo, useUpdateStatus, useUsage } from "../hooks/queries";
 import { useSession } from "../hooks/session";
@@ -73,6 +74,7 @@ export default function SettingsPage() {
       ) : (
         <div className="space-y-8 animate-fade-in">
           {tab === "General" && <GeneralTab settings={settings} />}
+          {tab === "General" && <PushNotificationsCard />}
           {tab === "AI" && <AiTab settings={settings} />}
           {tab === "Privacy" && <PrivacyTab />}
           {tab === "Security" && <SecurityTab />}
@@ -314,9 +316,9 @@ function MemoryHistorySection({ settings }: { settings: Settings }) {
         </div>
       </Row>
       {mh.conflictReview && (
-        <Row label="Double-check conflicts with AI" hint="For unclear conflicts only, ask the chat model whether they really conflict. Uses one AI request per check. It never changes memories by itself.">
+        <Row label="Check conflicts with AI" hint="Let Clef, Cloudflare's decision model, decide whether a new memory replaces an older one. Only a confident replacement marks the older one as past; unclear cases wait for review. Uses one AI request per save that has possible conflicts.">
           <div className="flex justify-end">
-            <Switch checked={mh.aiConflictCheck} onChange={(v) => save.mutate({ memoryHistory: { aiConflictCheck: v } })} label="Double-check conflicts with AI" />
+            <Switch checked={mh.aiConflictCheck} onChange={(v) => save.mutate({ memoryHistory: { aiConflictCheck: v } })} label="Check conflicts with AI" />
           </div>
         </Row>
       )}
