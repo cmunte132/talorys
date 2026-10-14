@@ -1,6 +1,6 @@
 import type { ChatMessage, ChatStreamEvent, PendingAction, ToolActivity } from "@talorys/shared";
 import type { Services } from "../services/container";
-import { type AIProvider, classifyAiError, estimateTokens, type ProviderTool } from "../ai/provider";
+import { type AIProvider, classifyAiError, estimateTokens, type ProviderTool, usageOfFailure } from "../ai/provider";
 import { AppError, NotFoundError } from "../api/errors";
 import { ALL_TOOLS, ToolExecutor, type ToolDefinition } from "../tools";
 import { buildSystemPrompt } from "./prompt";
@@ -148,6 +148,8 @@ export class AgentRunner {
           s.conversations.setSummary(conversation.id, summary, summaryUpto);
           window = buildContextWindow(history, historyBudget, summaryUpto);
         } catch (error) {
+          const usage = usageOfFailure(error);
+          if (usage) s.usage.record(usage);
           console.warn("Summarization skipped", error);
         }
       }

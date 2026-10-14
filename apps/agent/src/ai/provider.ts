@@ -74,8 +74,26 @@ export function estimateTokens(text: string | number): number {
   return Math.ceil((typeof text === "number" ? text : text.length) / 4);
 }
 
+/** A provider-reported token count, or undefined unless it is a non-negative safe integer. */
+export function tokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
 export function tokens(reported: number | undefined, estimate: number): TokenUsage {
   return reported === undefined ? { reported: 0, estimated: estimate } : { reported, estimated: 0 };
+}
+
+const failedCallUsage = new WeakMap<object, Usage>();
+
+/** Attaches what a failed `generate()` call consumed, so its caller can record it. */
+export function withUsage<E extends Error>(error: E, usage: Usage | undefined): E {
+  if (usage) failedCallUsage.set(error, usage);
+  return error;
+}
+
+/** Usage attached to a failed call by `withUsage`, if any. */
+export function usageOfFailure(error: unknown): Usage | undefined {
+  return typeof error === "object" && error !== null ? failedCallUsage.get(error) : undefined;
 }
 
 export function modelUsage(model: string, billable: boolean, inputTokens: TokenUsage, outputTokens = tokens(0, 0), cachedInputTokens = 0): Usage {

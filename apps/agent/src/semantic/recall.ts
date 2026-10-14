@@ -1,10 +1,10 @@
 import type { Memory } from "@talorys/shared";
 import type { Env } from "../env";
-import { estimateTokens, type Usage } from "../ai/provider";
+import { estimateTokens } from "../ai/provider";
 import type { Services } from "../services/container";
 import { UsageService } from "../services/usage";
 import type { SemanticConfig } from "./config";
-import { MODEL_DIMS, createEmbedder, recordEmbeddingCall, reserveEmbedding } from "./embeddings";
+import { MODEL_DIMS, MeteredEmbedder, createEmbedder, reserveEmbedding } from "./embeddings";
 import { type IndexerContext, runIndexer } from "./indexer";
 import { ensureSemanticSchema } from "./migrations";
 import { cachedVectors, dot, normalize } from "./vectorStore";
@@ -46,7 +46,8 @@ export interface SemanticContext extends IndexerContext {
 }
 
 export function createSemanticContext(services: Services, env: Env, config: SemanticConfig): SemanticContext {
-  return { db: services.db, services, config, embedder: createEmbedder(env, services.settings, config.model) };
+  const embedder = createEmbedder(env, services.settings, config.model);
+  return { db: services.db, services, config, embedder: embedder && new MeteredEmbedder(services.db, embedder) };
 }
 
 export interface RecallHit {
@@ -81,15 +82,12 @@ async function embedQuery(ctx: SemanticContext, query: string): Promise<Float32A
   const day = UsageService.day();
   // Reserved before the call (which counts even if it fails), so concurrent turns cannot overrun the cap.
   if (!reserveEmbedding(db, day, config.maxEmbeddingsPerDay, estimateTokens(query))) return null;
-  let usage: Usage | undefined;
   try {
-    const [vector] = await embedder.embed([query], (reported) => { usage = reported; });
+    const [vector] = await embedder.embed([query]);
     return vector && vector.length === embedder.dims ? vector : null;
   } catch (error) {
     console.warn("Semantic query embedding failed; using keyword recall", error instanceof Error ? error.message : String(error));
     return null;
-  } finally {
-    recordEmbeddingCall(db, day, embedder, [query], usage);
   }
 }
 

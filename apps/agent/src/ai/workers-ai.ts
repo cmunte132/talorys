@@ -1,7 +1,7 @@
 import { generateText, streamText, type ToolSet } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import type { AgentEvent, AIProvider, GenerateRequest, ToolRequest } from "./provider";
-import { classifyAiError, estimateTokens } from "./provider";
+import { classifyAiError, withUsage } from "./provider";
 import { meteredBinding, stepUsage, type StepMeter } from "./workers-ai-usage";
 
 /**
@@ -25,8 +25,8 @@ export class CloudflareWorkersAIProvider implements AIProvider {
   }
 
   async generate(req: GenerateRequest) {
+    const steps: StepMeter[] = [];
     try {
-      const steps: StepMeter[] = [];
       const result = await generateText({
         model: this.createModel(steps),
         instructions: req.system,
@@ -39,10 +39,11 @@ export class CloudflareWorkersAIProvider implements AIProvider {
       });
       return {
         text: result.text,
-        usage: stepUsage(this.model, steps[0]!, estimateTokens(result.text.length + (result.reasoningText?.length ?? 0))),
+        usage: stepUsage(this.model, steps[0]!, result.text.length + (result.reasoningText?.length ?? 0)),
       };
     } catch (error) {
-      throw classifyAiError(error);
+      // A call that reached the binding is metered even when it fails (docs/architecture.md).
+      throw withUsage(classifyAiError(error), steps[0] && stepUsage(this.model, steps[0], 0));
     }
   }
 
@@ -89,6 +90,7 @@ export class CloudflareWorkersAIProvider implements AIProvider {
       },
     });
 
+    let failure: unknown = null;
     try {
       for await (const part of result.fullStream) {
         switch (part.type) {
@@ -116,9 +118,8 @@ export class CloudflareWorkersAIProvider implements AIProvider {
             };
             break;
           case "finish-step":
-            if (part.finishReason !== "error") {
-              yield { type: "usage", usage: stepUsage(this.model, steps[stepIndex]!, estimateTokens(stepOutputChars)) };
-            }
+            // An "error" step still ran: its prompt was processed and any received counts are kept.
+            if (steps[stepIndex]) yield { type: "usage", usage: stepUsage(this.model, steps[stepIndex]!, stepOutputChars) };
             stepIndex++;
             stepOutputChars = 0;
             break;
@@ -129,13 +130,15 @@ export class CloudflareWorkersAIProvider implements AIProvider {
         }
       }
     } catch (error) {
-      throw classifyAiError(error);
+      failure = error;
     }
-    if (streamError) throw classifyAiError(streamError);
-    // The SDK can end quietly on abort without a finish-step; only binding calls that actually started are metered.
+    failure ??= streamError;
+    // Every binding call that started and has no finish-step yet is metered before any error is
+    // rethrown: after a quiet abort, a stream error or a failed call (docs/architecture.md).
     for (; stepIndex < steps.length; stepIndex++) {
-      yield { type: "usage", usage: stepUsage(this.model, steps[stepIndex]!, estimateTokens(stepOutputChars)) };
+      yield { type: "usage", usage: stepUsage(this.model, steps[stepIndex]!, stepOutputChars) };
       stepOutputChars = 0;
     }
+    if (failure) throw classifyAiError(failure);
   }
 }

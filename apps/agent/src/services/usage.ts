@@ -66,7 +66,7 @@ export class UsageService {
   }
 
   private sum(from: string, to: string): UsageCounters {
-    const row = from === to ? this.dailyRow(from) : this.db.one<Record<string, number | null>>(
+    const row = this.db.one<Record<string, number | null>>(
       `SELECT sum(ai_requests) AS ai_requests, sum(input_tokens) AS input_tokens, sum(output_tokens) AS output_tokens,
               sum(tool_calls) AS tool_calls, sum(scheduled_ai_runs) AS scheduled_ai_runs, sum(ai_errors) AS ai_errors
        FROM tal_usage_daily WHERE day >= ? AND day <= ?`,
@@ -77,7 +77,8 @@ export class UsageService {
               sum(input_tokens_estimated) AS input_tokens_estimated, sum(output_tokens_estimated) AS output_tokens_estimated,
               sum(embedding_requests) AS embedding_requests, sum(neurons_estimate) AS neurons_estimate,
               sum(cost_usd_estimate) AS cost_usd_estimate, sum(priced_calls) AS priced_calls,
-              sum(unpriced_calls) AS unpriced_calls, sum(mock_calls) AS mock_calls
+              sum(unpriced_calls) AS unpriced_calls, sum(mock_calls) AS mock_calls,
+              sum(input_tokens_legacy) AS input_tokens_legacy
        FROM tal_model_usage_daily WHERE day >= ? AND day <= ?`,
       from, to,
     );
@@ -88,7 +89,7 @@ export class UsageService {
       output_tokens_reported: metered?.output_tokens_reported ?? 0,
       input_tokens_estimated: metered?.input_tokens_estimated ?? 0,
       output_tokens_estimated: metered?.output_tokens_estimated ?? 0,
-      input_tokens_legacy: row?.input_tokens ?? 0,
+      input_tokens_legacy: (row?.input_tokens ?? 0) + (metered?.input_tokens_legacy ?? 0),
       output_tokens_legacy: row?.output_tokens ?? 0,
       tool_calls: row?.tool_calls ?? 0,
       scheduled_ai_runs: row?.scheduled_ai_runs ?? 0,

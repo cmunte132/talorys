@@ -1,6 +1,6 @@
 import type { Memory } from "@talorys/shared";
 import { z } from "zod";
-import { estimateTokens, modelUsage, tokens as tokenUsage, type Usage } from "../ai/provider";
+import { estimateTokens, modelUsage, tokenCount, tokens as tokenUsage, type Usage } from "../ai/provider";
 
 export type Relationship = "supersedes" | "refines" | "contradicts" | "possible_update" | "complements" | "unrelated" | "duplicate";
 
@@ -202,9 +202,8 @@ export type ClefRun = (request: ClefRequest, signal?: AbortSignal) => Promise<un
 
 /** Clef bills input tokens only. The response's own count wins over the ~4 characters per token estimate. */
 export function clefUsage(request: ClefRequest, response: unknown): Usage {
-  const reported = (response as { usage?: { prompt_tokens?: unknown } } | null | undefined)?.usage?.prompt_tokens;
-  const count = typeof reported === "number" && Number.isSafeInteger(reported) && reported >= 0 ? reported : undefined;
-  return modelUsage(CLEF_MODEL, true, tokenUsage(count, estimateTokens(JSON.stringify(request))));
+  const reported = tokenCount((response as { usage?: { prompt_tokens?: unknown } } | null | undefined)?.usage?.prompt_tokens);
+  return modelUsage(CLEF_MODEL, true, tokenUsage(reported, estimateTokens(JSON.stringify(request))));
 }
 
 /** One choice question per older memory, all in one request. The facts are data in `state`. */

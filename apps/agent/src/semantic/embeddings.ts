@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import type { Database } from "../db/database";
 import type { SettingsService } from "../services/settings";
-import { estimateTokens, modelUsage, tokens, type Usage } from "../ai/provider";
+import { estimateTokens, modelUsage, tokenCount, tokens, type Usage } from "../ai/provider";
 import { UsageService } from "../services/usage";
 
 /** Dimensions of the mock embedder's vectors. */
@@ -53,10 +53,8 @@ export class WorkersAiEmbedder implements Embedder {
       data?: unknown;
       usage?: { prompt_tokens?: unknown; input_tokens?: unknown; total_tokens?: unknown };
     };
-    const count = result?.usage?.prompt_tokens ?? result?.usage?.input_tokens ?? result?.usage?.total_tokens;
-    const reported = typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : undefined;
-    onUsage?.(modelUsage(this.model, this.billable,
-      tokens(reported, reported === undefined ? estimatedEmbeddingTokens(texts) : 0)));
+    const reported = tokenCount(result?.usage?.prompt_tokens ?? result?.usage?.input_tokens ?? result?.usage?.total_tokens);
+    onUsage?.(modelUsage(this.model, this.billable, tokens(reported, estimatedEmbeddingTokens(texts))));
     const data = result?.data;
     if (!Array.isArray(data) || data.length !== texts.length) {
       throw new Error(`Embedding response had ${Array.isArray(data) ? data.length : "no"} vectors for ${texts.length} texts`);
@@ -215,4 +213,43 @@ export function recordEmbeddings(db: Database, day: string, requests: number, to
 export function recordEmbeddingCall(db: Database, day: string, embedder: Embedder, texts: string[], usage?: Usage): void {
   new UsageService(db).record(usage ?? modelUsage(embedder.model, embedder.billable !== false,
     tokens(undefined, estimatedEmbeddingTokens(texts))), day, "embedding");
+}
+
+/**
+ * Wraps `embedder` so every call, finished or failed, lands in the durable usage history, the way
+ * `meteredBinding` does for chat: callers cannot forget to meter. The semantic cap stays with the
+ * callers, which reserve it with `reserveEmbedding` before embedding.
+ */
+export class MeteredEmbedder implements Embedder {
+  constructor(
+    private readonly db: Database,
+    readonly inner: Embedder,
+  ) {}
+
+  get model(): string {
+    return this.inner.model;
+  }
+
+  /** Read through: a Workers AI model missing from MODEL_DIMS learns its size on the first call. */
+  get dims(): number {
+    return this.inner.dims;
+  }
+
+  get billable(): boolean | undefined {
+    return this.inner.billable;
+  }
+
+  async embed(texts: string[], onUsage?: (usage: Usage) => void): Promise<Float32Array[]> {
+    if (texts.length === 0) return this.inner.embed(texts, onUsage);
+    let usage: Usage | undefined;
+    try {
+      return await this.inner.embed(texts, (reported) => {
+        usage = reported;
+        onUsage?.(reported);
+      });
+    } finally {
+      // Attempted input remains an estimate when a failed call returned no usage.
+      recordEmbeddingCall(this.db, UsageService.day(), this.inner, texts, usage);
+    }
+  }
 }

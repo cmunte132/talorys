@@ -264,15 +264,18 @@ export const MIGRATIONS: Migration[] = [
         priced_calls INTEGER NOT NULL DEFAULT 0,
         unpriced_calls INTEGER NOT NULL DEFAULT 0,
         mock_calls INTEGER NOT NULL DEFAULT 0,
+        -- Written only below: pre-provenance embedding estimates. Never priced.
+        input_tokens_legacy INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (day, model, billable)
       )`,
     ],
     after: (db) => {
-      // Semantic tables are lazy. Preserve old estimates without inventing their model.
+      // Semantic tables are lazy. Old embedding estimates join legacy chat tokens: unknown model
+      // and provenance, so neither current "est." tokens nor unpriced calls.
       if (db.one(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tal_semantic_usage'`)) {
         db.run(
-          `INSERT INTO tal_model_usage_daily (day, model, billable, input_tokens_estimated, embedding_requests, unpriced_calls)
-           SELECT day, '(legacy embeddings)', 1, embedded_tokens_estimate, embedding_requests, embedding_requests
+          `INSERT INTO tal_model_usage_daily (day, model, billable, input_tokens_legacy, embedding_requests)
+           SELECT day, '(legacy embeddings)', 1, embedded_tokens_estimate, embedding_requests
            FROM tal_semantic_usage`,
         );
       }

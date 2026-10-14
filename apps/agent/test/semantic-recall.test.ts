@@ -13,6 +13,7 @@ import {
 import {
   EMBEDDING_DIMS,
   type Embedder,
+  MeteredEmbedder,
   MockEmbedder,
   contentHash,
   embeddingText,
@@ -75,7 +76,8 @@ function context(a: TalorysAgent, patch: ContextPatch = {}, embedder: Embedder |
   const ctx: SemanticContext = {
     db: s.db,
     services: s,
-    embedder,
+    // Metered as createSemanticContext does; `embed` above still spies on the inner embedder.
+    embedder: embedder && new MeteredEmbedder(s.db, embedder),
     config: {
       ...DEFAULT_SEMANTIC_CONFIG,
       enabled: true,
@@ -938,6 +940,19 @@ describe("PR #22 review", () => {
       }
       expect(embeddingsToday(s.db, day)).toBe(before + 1);
       expect((await pendingMemories(s.db, ctx.embedder!.model)).length).toBeGreaterThanOrEqual(60);
+    });
+  });
+
+  it("finding neighbors meters its embed in the usage history, matching the cap counter", async () => {
+    await inAgent(async (a) => {
+      const { s } = enabled(a);
+      const saved = s.memories.create({ content: "I live in Lisbon", category: "fact" });
+      const day = UsageService.day();
+      const cap = embeddingsToday(s.db, day);
+      const ledger = s.usage.today().embedding_requests;
+      await semanticNeighbors(s, workerEnv, saved, options());
+      expect(embeddingsToday(s.db, day)).toBe(cap + 1);
+      expect(s.usage.today().embedding_requests).toBe(ledger + 1);
     });
   });
 

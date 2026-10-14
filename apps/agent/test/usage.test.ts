@@ -117,9 +117,10 @@ describe("local model consumption", () => {
       db.run("UPDATE tal_schema SET version = 6 WHERE id = 1");
       migrate(db);
       migrate(db);
-      expect(ledger.today()).toMatchObject({ ai_requests: 3, input_tokens_legacy: 120, output_tokens_legacy: 20,
-        input_tokens_reported: 0, input_tokens_estimated: 50, embedding_requests: 2,
-        unpriced_calls: 2, neurons_estimate: null });
+      // Old embedding estimates are legacy (unknown model and provenance), not current estimates or unpriced calls.
+      expect(ledger.today()).toMatchObject({ ai_requests: 3, input_tokens_legacy: 170, output_tokens_legacy: 20,
+        input_tokens_reported: 0, input_tokens_estimated: 0, embedding_requests: 2,
+        unpriced_calls: 0, neurons_estimate: null });
       expect(db.one<{ input_tokens: number }>("SELECT input_tokens FROM tal_usage_daily WHERE day = ?", day)?.input_tokens).toBe(120);
       expect(db.one<{ embedding_requests: number }>("SELECT embedding_requests FROM tal_semantic_usage WHERE day = ?", day)?.embedding_requests).toBe(2);
     });

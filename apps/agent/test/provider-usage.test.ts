@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { CloudflareWorkersAIProvider } from "../src/ai/workers-ai";
-import { estimateTokens, type AgentEvent, type GenerateRequest, type ToolRequest, type Usage } from "../src/ai/provider";
+import { estimateTokens, type AgentEvent, type GenerateRequest, type ToolRequest, type Usage, usageOfFailure } from "../src/ai/provider";
 import { AgentRunner } from "../src/agent/runner";
 import { inAgent } from "./helpers";
 import { MockAIProvider } from "../src/ai/mock";
@@ -202,6 +202,38 @@ describe("provider token provenance", () => {
     expect(usageEvents(events)).toEqual([{ model, billable: true, inputTokens: { reported: 17, estimated: 0 }, outputTokens: { reported: 0, estimated: 0 }, cachedInputTokens: 7 }]);
   });
 
+  it("meters a step whose stream errors part-way before rethrowing", async () => {
+    const provider = new CloudflareWorkersAIProvider(binding(async () => {
+      const bytes = new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "partial answer" } }], usage: { prompt_tokens: 30 } })}\r\n\r\n`);
+      let pulls = 0;
+      // Errors on the read after the first chunk; erroring in start() would discard the queued chunk.
+      return new ReadableStream({
+        pull(controller) {
+          if (pulls++ === 0) controller.enqueue(bytes);
+          else controller.error(new Error("upstream connection reset"));
+        },
+      });
+    }), model);
+    const events: AgentEvent[] = [];
+    await expect((async () => {
+      for await (const event of provider.stream(request)) events.push(event);
+    })()).rejects.toThrow();
+    expect(usageEvents(events)).toEqual([{ model, billable: true, inputTokens: { reported: 30, estimated: 0 },
+      outputTokens: { reported: 0, estimated: estimateTokens("partial answer") }, cachedInputTokens: 0 }]);
+  });
+
+  it("attaches the usage of a failed generate call to its error", async () => {
+    const provider = new CloudflareWorkersAIProvider(binding(async () => {
+      throw new Error("upstream 502");
+    }), model);
+    const error = await provider.generate(request).then(() => null, (e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    const usage = usageOfFailure(error);
+    expect(usage?.inputTokens.reported).toBe(0);
+    expect(usage?.inputTokens.estimated).toBeGreaterThan(0);
+    expect(usage?.outputTokens).toEqual({ reported: 0, estimated: 0 });
+  });
+
   for (const cancel of [false, true]) {
     it(`preserves a completed step when the next call ${cancel ? "is cancelled" : "fails"}`, async () => {
       let calls = 0;
@@ -220,13 +252,11 @@ describe("provider token provenance", () => {
       expect(calls).toBe(2);
       const usages = usageEvents(events);
       expect(usages[0]).toEqual({ model, billable: true, inputTokens: { reported: 20, estimated: 0 }, outputTokens: { reported: 6, estimated: 0 }, cachedInputTokens: 0 });
-      expect(usages).toHaveLength(cancel ? 2 : 1);
-      if (cancel) {
-        // The binding was entered before aborting, so this call is real even with no generated output.
-        expect(usages[1]).toEqual({ model, billable: true,
-          inputTokens: { reported: 0, estimated: estimateTokens(JSON.stringify({ messages: inputs[1]!.messages, tools: inputs[1]!.tools })) },
-          outputTokens: { reported: 0, estimated: 0 }, cachedInputTokens: 0 });
-      }
+      // The binding was entered before it failed or was aborted, so this call is metered even with no output.
+      expect(usages).toHaveLength(2);
+      expect(usages[1]).toEqual({ model, billable: true,
+        inputTokens: { reported: 0, estimated: estimateTokens(JSON.stringify({ messages: inputs[1]!.messages, tools: inputs[1]!.tools })) },
+        outputTokens: { reported: 0, estimated: 0 }, cachedInputTokens: 0 });
     });
   }
 

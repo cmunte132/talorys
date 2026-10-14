@@ -1,23 +1,32 @@
 import { createParser } from "eventsource-parser";
-import { estimateTokens, modelUsage, tokens, type Usage } from "./provider";
+import { estimateTokens, modelUsage, tokenCount, tokens, type Usage } from "./provider";
 
 export interface StepMeter {
   inputEstimate: number;
   input?: number;
   output?: number;
   cached?: number;
+  /** Text and reasoning characters seen in raw responses, including output the SDK dropped on an error. */
+  outputChars?: number;
 }
 
-function count(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+interface RawChunk {
+  response?: unknown;
+  choices?: { delta?: { content?: unknown; reasoning_content?: unknown } }[];
+  usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } };
 }
 
 function capture(meter: StepMeter, response: unknown): void {
-  const usage = (response as { usage?: { prompt_tokens?: unknown; completion_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } } } | null)?.usage;
+  const chunk = response as RawChunk | null;
+  const delta = chunk?.choices?.[0]?.delta;
+  for (const text of [chunk?.response, delta?.content, delta?.reasoning_content]) {
+    if (typeof text === "string") meter.outputChars = (meter.outputChars ?? 0) + text.length;
+  }
+  const usage = chunk?.usage;
   if (!usage) return;
-  meter.input = count(usage.prompt_tokens) ?? meter.input;
-  meter.output = count(usage.completion_tokens) ?? meter.output;
-  meter.cached = count(usage.prompt_tokens_details?.cached_tokens) ?? meter.cached;
+  meter.input = tokenCount(usage.prompt_tokens) ?? meter.input;
+  meter.output = tokenCount(usage.completion_tokens) ?? meter.output;
+  meter.cached = tokenCount(usage.prompt_tokens_details?.cached_tokens) ?? meter.cached;
 }
 
 /** Observe before workers-ai-provider turns missing usage fields into reported zeroes. */
@@ -67,6 +76,8 @@ export function meteredBinding(binding: Ai, steps: StepMeter[]): Ai {
   });
 }
 
-export function stepUsage(model: string, meter: StepMeter, outputEstimate: number): Usage {
+/** `outputChars` is what the SDK surfaced; the raw count wins when the SDK dropped output on an error. */
+export function stepUsage(model: string, meter: StepMeter, outputChars: number): Usage {
+  const outputEstimate = estimateTokens(Math.max(outputChars, meter.outputChars ?? 0));
   return modelUsage(model, true, tokens(meter.input, meter.inputEstimate), tokens(meter.output, outputEstimate), meter.cached);
 }

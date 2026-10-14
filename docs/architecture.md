@@ -87,16 +87,25 @@ Usage is additive per model step, including summaries and memory
 inference. Input and output tokens each preserve provider-reported values when
 present (including zero); missing directions use a separate fallback estimate.
 Embedding calls are metered too, but do not consume the chat-model request cap.
-Mock calls carry estimated tokens and are nonbillable.
+Every semantic embedder is wrapped in `MeteredEmbedder`, so each call is recorded
+whichever code path makes it. Mock calls carry estimated tokens and are nonbillable.
+
+One rule covers failures: every model call that reached the binding is metered,
+whether it finished, failed or was aborted. Received counts are kept and missing
+directions are estimated. This applies alike to chat steps, summaries, scheduled
+runs, Clef memory checks and embeddings. A call rejected before inference may be
+over-counted this way; the totals are estimates, and under-counting a call that
+did run would be worse.
 
 The Workers AI adapter observes raw response usage before SDK normalization,
 which otherwise turns missing counts into zero. Streaming usage is emitted per
-completed step or binding call left unfinished by a quiet abort, not from
-cumulative turn totals. Interrupted steps retain received counts and estimate
-missing directions from the actual SDK-built request and observed text,
-reasoning and tool-call output. Completed usage survives a later failure.
-Ordinary failed calls without a receipt remain unmetered; generation beyond
-the observed stream cannot be measured.
+step, not from cumulative turn totals, and before an error is rethrown, so steps
+that end in an error, break off mid-stream or fail outright are recorded too.
+Interrupted steps retain received counts and estimate missing directions from the
+actual SDK-built request and the larger of the output the SDK surfaced and the raw
+text seen in the binding's response. A failed `generate()` attaches its usage to
+the error for the caller to record. Generation beyond the observed stream cannot
+be measured.
 
 The SSE usage observer declares `eventsource-parser` directly instead of relying
 on an SDK's transitive dependency.
@@ -107,8 +116,9 @@ Local Neuron and USD estimates use a static model-specific published rate table
 at record time and persist the result rather than repricing history. Unknown
 models are counted as unpriced; mixed coverage is a partial subtotal, never an
 exact bill. Legacy mixed chat tokens retain unknown model/provenance and are
-excluded from pricing. Historical embedding estimates keep their estimated
-provenance but have an unknown model and remain unpriced. Cached input receives
+excluded from pricing. Historical embedding estimates join them in the legacy
+bucket (unknown model and provenance, unpriced) rather than counting as current
+estimates or unpriced calls. Cached input receives
 a separate rate only when both its count and that model's cached rate are known.
 With no priced billable calls, estimates are unavailable, not zero.
 The UI exposes the pricing date and source. Accounting needs no account
@@ -140,8 +150,8 @@ added approval binding columns to `tal_pending_actions` (`target_version`,
 `payload`, `preview`); migration 6 added `tal_push_subscriptions` for Web Push devices.
 Migration 7 adds per-day, per-model provenance and persisted price estimates,
 leaving legacy chat tokens untouched. Existing semantic embedding counters are
-copied as unpriced historical estimates without creating semantic tables when
-the feature has never been enabled.
+copied into its legacy token bucket without creating semantic tables when the
+feature has never been enabled.
 
 ## Free-tier choices
 
