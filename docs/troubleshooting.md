@@ -29,12 +29,6 @@ Workers settings; SQLite Durable Objects are included on the Free plan.
 
 ## Using Talorys
 
-**Projects shows only a status dropdown.** Older versions let the dropdown
-squeeze the project name out of the row. The corrected dialog keeps names
-visible, wraps long names, and places status and delete controls below the
-name on narrow screens. This is a display issue; do not delete and recreate
-projects to recover their names.
-
 **"Your Cloudflare account has used its Workers AI allocation for today."**
 The daily free Neuron allocation is exhausted. Chat resumes after the reset;
 tasks, notes, memories and reminders keep working. Exact usage is in the
